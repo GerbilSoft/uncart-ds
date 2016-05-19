@@ -76,7 +76,7 @@ typedef struct
 {
 	char game_title[12];
 	char gamecode[4];
-	char makercode[4];
+	char makercode[2];
 	u8 unitcode;
 	u8 enc_seed_select;
 	u8 device_capacity;
