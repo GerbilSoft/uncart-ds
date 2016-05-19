@@ -219,9 +219,9 @@ cleanup_none:
 
 /**
  * Dump an NTR cartridge.
- * @param cart_id Cartridge ID.
+ * @param chip_id Chip ID.
  */
-static void dump_ntr(u32 cart_id)
+static void dump_ntr(u32 chip_id)
 {
     // Arbitrary target buffer
     // TODO: This should be done in a nicer way ;)
@@ -243,17 +243,25 @@ static void dump_ntr(u32 cart_id)
     Debug("Done reading NTR header.");
     Debug("Game title: %.12s", ntrHeader->game_title);
 
-    // FIXME: Compare cart_id's ROM size to ntrHeader->device_capacity.
-    // Also ntrHeader->total_used_rom_size.
-    const u8 cart_id_sz = (cart_id >> 8) & 0xFF;
+    // Get the ROM size from the chip ID.
+    const u8 chip_id_sz = (chip_id >> 8) & 0xFF;
     u32 rom_size_mb;
-    if (cart_id_sz < 0xF0) {
-	    // FIXME: Only 0x00-0x7F?
-	    rom_size_mb = cart_id_sz + 1;
-    } else {
-	    rom_size_mb = (256 - cart_id_sz) * 256;
+    if (chip_id_sz < 0xF0) {
+           // FIXME: Only 0x00-0x7F?
+           rom_size_mb = chip_id_sz + 1;
     }
+
+    // TODO: Print a warning if chip ID size != NTR_HEADER size.
     Debug("Device size: %u MB", rom_size_mb);
+    if (ntrHeader->device_capacity <= 2) {
+        // 512 KB or less.
+        Debug("ROM size:    %u KB", 128 << ntrHeader->device_capacity);
+        Debug("ROM usage:   %u KB", ntrHeader->total_used_rom_size >> 10);
+    } else {
+        // 1 MB or greater.
+        Debug("ROM size:    %u MB", 1 << (ntrHeader->device_capacity - 3));
+        Debug("ROM usage:   %u MB", ntrHeader->total_used_rom_size >> 20);
+    }
 
     // Clear 0x1000-0x3FFF.
     memset(&target[0x1000], 0, 0x3000); // Clear our buffer
@@ -268,26 +276,26 @@ int main()
         // Setup boring stuff - clear the screen, initialize SD output, etc...
         ClearTop();
 
-        Debug("Uncart: ROM dump tool v0.2");
+        Debug("Uncart-DS: ROM dump tool v0.2");
         Debug("Insert your game cart now.");
         wait_key();
 
         Cart_Init();
-	u32 cart_id = Cart_GetID();
-        Debug("Cart ID is %08X", cart_id);
-	if (cart_id == 0x00000000 || cart_id == 0xFFFFFFFF) {
+	u32 chip_id = Cart_GetID();
+        Debug("Chip ID is %08X", chip_id);
+	if (chip_id == 0x00000000 || chip_id == 0xFFFFFFFF) {
 		Debug("Cartridge not found!");
 		Debug("Press B to exit, any other key to restart.");
 		if (!(InputWait() & BUTTON_B))
 			continue;
 		break;
-	} else if (cart_id & 0x80000000) {
+	} else if (chip_id & 0x80000000) {
 		// 3DS cartridge.
 		dump_ctr();
 	} else {
 		// DS(i) cartridge.
 		// FIXME: Proper TWL support.
-		dump_ntr(cart_id);
+		dump_ntr(chip_id);
 	}
 
         Debug("Press B to exit, any other key to restart.");
