@@ -225,7 +225,7 @@ static void dump_ntr(u32 cart_id)
 {
     // Arbitrary target buffer
     // TODO: This should be done in a nicer way ;)
-    u32* target = (u32*)0x22000000;
+    u8* target = (u8*)0x22000000;
     NTR_HEADER *ntrHeader = (NTR_HEADER*)target;
     u32 target_buf_size = 16u * 1024u * 1024u; // 16MB
     memset(target, 0, target_buf_size); // Clear our buffer
@@ -255,9 +255,11 @@ static void dump_ntr(u32 cart_id)
     }
     Debug("Device size: %u MB", rom_size_mb);
 
-    // Initialize cartridge security.
-    // TODO
-    
+    // Clear 0x1000-0x3FFF.
+    memset(&target[0x1000], 0, 0x3000); // Clear our buffer
+
+    // Read the secure area. (0x4000-0x7FFF)
+    NTR_ReadSecureArea(&target[0x4000], ntrHeader);
 }
 
 int main()

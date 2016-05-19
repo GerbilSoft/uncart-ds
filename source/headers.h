@@ -108,8 +108,8 @@ typedef struct
 	u32 arm7_overlay_offset;
 	u32 arm7_overlay_size;
 
-	u32 normal_40001A4;	// Port 0x40001A4 setting for normal commands (usually 0x00586000)
-	u32 key1_40001A4;	// Port 0x40001A4 setting for KEY1 commands (usually 0x001808F8)
+	u32 cardControl13;	// Port 0x40001A4 setting for normal commands (usually 0x00586000)
+	u32 cardControlBF;	// Port 0x40001A4 setting for KEY1 commands (usually 0x001808F8)
 
 	u32 icon_offset;
 	u16 secure_area_checksum;	// CRC32 of 0x0020...0x7FFF

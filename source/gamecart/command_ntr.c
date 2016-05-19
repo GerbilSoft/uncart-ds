@@ -10,7 +10,6 @@
  */
 
 #include "command_ntr.h"
-
 #include "protocol_ntr.h"
 
 void NTR_CmdReset(void)
@@ -44,4 +43,233 @@ void NTR_CmdReadHeader(void* buffer)
 {
     static const u32 readheader_cmd[2] = { 0x00000000, 0x00000000 };
     NTR_SendCommand(readheader_cmd, 0x200, NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) | NTRCARD_DELAY2(0x18), buffer);
+}
+
+/** KEY1/KEY2 encryption code based on Wood Dumper. **/
+
+#define ALIGN(n) __attribute__ ((aligned (n)))
+
+// Key1 data for NTR.
+#include "key1.h"
+
+enum {
+    EInitAreaSize = 0x8000,
+    ESecureAreaSize = 0x4000,
+    ESecureAreaOffset = 0x4000,
+    EBufferSize = 0x8000,
+    EBlockSize = 0x200,
+    EHashSize = 0x412,
+    EEncMudule = 2
+};
+
+static u32 iCardHash[EHashSize];
+static u32 iKeyCode[3];
+
+// lol
+#define getRandomNumber() (4)
+
+// KEY1 context.
+struct {
+    unsigned int iii;
+    unsigned int jjj;
+    unsigned int kkkkk;
+    unsigned int llll;
+    unsigned int mmm;
+    unsigned int nnn;
+} iKey1;
+
+static void cryptUp(u32* aPtr)
+{
+    u32 x = aPtr[1];
+    u32 y = aPtr[0];
+    u32 z;
+    for (int ii = 0; ii < 0x10; ++ii) {
+        z = iCardHash[ii]^x;
+        x = iCardHash[0x012+((z>>24)&0xff)];
+        x = iCardHash[0x112+((z>>16)&0xff)]+x;
+        x = iCardHash[0x212+((z>>8)&0xff)]^x;
+        x = iCardHash[0x312+((z>>0)&0xff)]+x;
+        x = y^x;
+        y = z;
+    }
+    aPtr[0] = x^iCardHash[0x10];
+    aPtr[1] = y^iCardHash[0x11];
+}
+
+static void cryptDown(u32* aPtr)
+{
+    u32 x = aPtr[1];
+    u32 y = aPtr[0];
+    u32 z;
+    for (int ii = 0x11; ii > 0x01; --ii) {
+        z = iCardHash[ii]^x;
+        x = iCardHash[0x012+((z>>24)&0xff)];
+        x = iCardHash[0x112+((z>>16)&0xff)]+x;
+        x = iCardHash[0x212+((z>>8)&0xff)]^x;
+        x = iCardHash[0x312+((z>>0)&0xff)]+x;
+        x = y^x;
+        y = z;
+    }
+    aPtr[0] = x^iCardHash[0x01];
+    aPtr[1] = y^iCardHash[0x00];
+}
+
+static inline u32 bswap(u32 x)
+{
+    return (x >> 24) |
+           (x >> 8 & 0x0000FF00) |
+           (x << 8 & 0x00FF0000) |
+           (x << 24);
+}
+
+/**
+ * Apply the Key1 hash.
+ */
+static void applyKey(void)
+{
+    u32 scratch[2] = {0, 0};
+    cryptUp(&iKeyCode[1]);
+    cryptUp(&iKeyCode[0]);
+
+    for (int ii = 0; ii < 0x12; ++ii) {
+        iCardHash[ii] = iCardHash[ii] ^ bswap(iKeyCode[ii%2]);
+    }
+    for (int ii=0;ii<EHashSize;ii+=2) {
+        cryptUp(scratch);
+        iCardHash[ii] = scratch[1];
+        iCardHash[ii+1] = scratch[0];
+    }
+}
+
+/**
+ * Initialize the Key1 hash.
+ * @param gameCode 32-bit game code.
+ * @param aType If non-zero, call ApplyKey() a third time.
+ */
+static void initKey(u32 gameCode, int aType)
+{
+    memcpy(iCardHash, gEncrData, sizeof(gEncrData));
+    iKeyCode[0] = gameCode;
+    iKeyCode[1] = gameCode/2;
+    iKeyCode[2] = gameCode*2;
+
+    applyKey();
+    applyKey();
+    iKeyCode[1] *= 2;
+    iKeyCode[2] /= 2;
+    if (aType) {
+	    applyKey();
+    }
+}
+
+/**
+ * Initialize the KEY1 context.
+ * @param cmdData [out] Command data.
+ */
+static void initKey1(u8 cmdData[8])
+{
+    iKey1.iii=getRandomNumber()&0x00000fff;
+    iKey1.jjj=getRandomNumber()&0x00000fff;
+    iKey1.kkkkk=getRandomNumber()&0x000fffff;
+    iKey1.llll=getRandomNumber()&0x0000ffff;
+    iKey1.mmm=getRandomNumber()&0x00000fff;
+    iKey1.nnn=getRandomNumber()&0x00000fff;
+
+    cmdData[3] = NTRCARD_CMD_ACTIVATE_BF;
+    cmdData[2] = (u8)(iKey1.iii>>4);
+    cmdData[1] = (u8)((iKey1.iii<<4)|(iKey1.jjj>>8));
+    cmdData[0] = (u8)iKey1.jjj;
+    cmdData[7] = (u8)(iKey1.kkkkk>>16);
+    cmdData[6] = (u8)(iKey1.kkkkk>>8);
+    cmdData[5] = (u8)iKey1.kkkkk;
+    cmdData[4] = (u8)getRandomNumber();
+}
+
+/**
+ * Create a KEY1 encrypted command.
+ * @param cmd		[in]  Command.
+ * @param cmdData	[out] Command data.
+ * @param block		[in]  Block number.
+ */
+void createEncryptedCommand(u8 cmd, u8 cmdData[8], u32 block)
+{
+    u32 iii, jjj;
+    if (cmd != NTRCARD_CMD_SECURE_READ) {
+        // Block number is only used for secure area read.
+        // For everything else, it's a KEY1 context value.
+        block = iKey1.llll;
+    }
+
+    if (cmd == NTRCARD_CMD_ACTIVATE_SEC) {
+      iii = iKey1.mmm;
+      jjj = iKey1.nnn;
+    } else {
+      iii = iKey1.iii;
+      jjj = iKey1.jjj;
+    }
+
+    // Fill in the command data.
+    cmdData[3] = (u8)(cmd|(block>>12));
+    cmdData[2] = (u8)(block>>4);
+    cmdData[1] = (u8)((block<<4)|(iii>>8));
+    cmdData[0] = (u8)iii;
+    cmdData[7] = (u8)(jjj>>4);
+    cmdData[6] = (u8)((jjj<<4)|(iKey1.kkkkk>>16));
+    cmdData[5] = (u8)(iKey1.kkkkk>>8);
+    cmdData[4] = (u8)iKey1.kkkkk;
+    cryptUp((u32*)cmdData);
+    iKey1.kkkkk += 1;
+}
+
+/**
+ * Decrypt Secure Area data. (first 2 KB)
+ * @param gameCode	[in] Game code.
+ * @param secureArea	[in/out] Secure area.
+ */
+void decryptSecureArea(u32 gameCode, u32 *secureArea)
+{
+    initKey(gameCode, 0);
+    cryptDown(secureArea);
+    initKey(gameCode, 1);
+    for (int ii = 0; ii < 0x200; ii += 2) {
+        cryptDown(secureArea + ii);
+    }
+}
+
+/**
+ * Read the Secure Area. (0x4000-0x7FFF)
+ * This switches into KEY2 encryption mode.
+ * @param buffer	[out] Output buffer.
+ * @param ntrHeader	[in]  NTR header.
+ */
+void NTR_ReadSecureArea(void *buffer, const NTR_HEADER *ntrHeader)
+{
+    // Partially based on Wood Dumper.
+    u32 gameCode;
+    memcpy(&gameCode, ntrHeader->gamecode, sizeof(gameCode));
+    initKey(gameCode, false);
+
+    u32 flagsKey1 = NTRCARD_ACTIVATE | NTRCARD_nRESET |
+                    (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_CLK_SLOW)) |
+                    ((ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF))) +
+		        ((ntrHeader->cardControlBF & NTRCARD_DELAY2(0x3F))>>16));
+    u32 flagsSec = (ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) |NTRCARD_DELAY2(0x3F))) |
+                    NTRCARD_ACTIVATE | NTRCARD_nRESET | NTRCARD_SEC_EN | NTRCARD_SEC_DAT;
+    // FIXME: "iCheapCard"?
+    //if(!iCheapCard) flagsKey1|=CARD_SEC_LARGE;
+
+    ALIGN(4) u8 cmdData[8];
+    static const u8 cardSeedBytes[] = {0xE8,0x4D,0x5A,0xB1,0x17,0x8F,0x99,0xD5};
+
+    u32 flags = ntrHeader->cardControl13 & ~NTRCARD_BLK_SIZE(7);
+
+    // Activate KEY1 mode.
+    initKey1(cmdData);
+    NTR_SendCommand(cmdData, 0, ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_CLK_SLOW | NTRCARD_ACTIVATE), NULL);
+
+    // Activate KEY2 mode.
+    createEncryptedCommand(NTRCARD_CMD_ACTIVATE_SEC, cmdData, 0);
+    NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+
+    // TODO: Other stuff.
 }
