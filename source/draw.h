@@ -37,4 +37,4 @@ void DrawString(unsigned char *screen, const char *str, size_t x, size_t y, int 
 void DrawStringF(size_t x, size_t y, const char *format, ...);
 void DrawHexWithName(unsigned char *screen, const char *str, unsigned int hex, size_t x, size_t y, int color, int bgcolor);
 
-void Debug(const char *format, ...);
+void Debug(const char *format, ...) __attribute__ ((format (printf, 1, 2)));
