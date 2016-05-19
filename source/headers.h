@@ -71,5 +71,72 @@ typedef struct
 } __attribute__((__packed__))
 NCCH_HEADER;
 
+// Reference: http://problemkaputt.de/gbatek.htm#dscartridgeheader
+typedef struct
+{
+	char game_title[12];
+	char gamecode[4];
+	char makercode[4];
+	u8 unitcode;
+	u8 enc_seed_select;
+	u8 device_capacity;
+	u8 reserved1[7];
+	u8 reserved2_dsi;
+	u8 nds_region;	// 0x00 == normal, 0x80 == China, 0x40 == Korea; others on DSi
+	u8 rom_version;
+	u8 autostart;
+	struct {
+		u32 rom_offset;
+		u32 entry_address;
+		u32 ram_address;
+		u32 size;
+	} arm9;
+	struct {
+		u32 rom_offset;
+		u32 entry_address;
+		u32 ram_address;
+		u32 size;
+	} arm7;
+
+	u32 fnt_offset;		// File Name Table offset
+	u32 fnt_size;		// File Name Table size
+	u32 fat_offset;
+	u32 fat_size;
+
+	u32 arm9_overlay_offset;
+	u32 arm9_overlay_size;
+	u32 arm7_overlay_offset;
+	u32 arm7_overlay_size;
+
+	u32 normal_40001A4;	// Port 0x40001A4 setting for normal commands (usually 0x00586000)
+	u32 key1_40001A4;	// Port 0x40001A4 setting for KEY1 commands (usually 0x001808F8)
+
+	u32 icon_offset;
+	u16 secure_area_checksum;	// CRC32 of 0x0020...0x7FFF
+	u16 secure_area_delay;		// Delay, in 131 kHz units (0x051E=10ms, 0x0D7E=26ms)
+
+	u32 arm9_auto_load_list_ram_address;
+	u32 arm7_auto_load_list_ram_address;
+
+	u64 secure_area_disable;
+
+	u32 total_used_rom_size;
+	u32 rom_header_size;		// Usually 0x4000
+	u8 reserved3[0x38];
+	u8 nintendo_logo[0x9C];		// GBA-style Nintendo logo
+	u16 nintendo_logo_checksum;	// CRC16 of nintendo_logo[] (always 0xCF56)
+	u16 header_checksum;		// CRC16 of 0x0000...0x015D
+
+	struct {
+		u32 rom_offset;
+		u32 size;
+		u32 ram_address;
+	} debug;
+
+	u8 reserved4[4];
+	u8 reserved5[0x90];
+} __attribute__((__packed__))
+NTR_HEADER;
+
 #endif//UNCART_HEADERS_H_
 

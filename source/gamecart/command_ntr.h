@@ -9,3 +9,9 @@
 void NTR_CmdReset(void);
 u32 NTR_CmdGetCartId(void);
 void NTR_CmdEnter16ByteMode(void);
+
+/**
+ * Read the header of an NTR/TWL cartridge.
+ * @param buffer Header buffer. (Must be >= 0x200 bytes)
+ */
+void NTR_CmdReadHeader(void* buffer);

@@ -2,6 +2,7 @@
  * References:
  * - http://problemkaputt.de/gbatek.htm#dscartridgesencryptionfirmware
  * - http://problemkaputt.de/gbatek.htm#dscartridgeprotocol
+ * - https://www.3dbrew.org/wiki/Gamecards
  */
 
 #include "draw.h"
@@ -9,6 +10,7 @@
 #include "fatfs/ff.h"
 #include "gamecart/protocol.h"
 #include "gamecart/command_ctr.h"
+#include "gamecart/command_ntr.h"
 #include "headers.h"
 #include "i2c.h"
 
@@ -221,7 +223,20 @@ cleanup_none:
  */
 void dump_ntr()
 {
-    // TODO
+    // Arbitrary target buffer
+    // TODO: This should be done in a nicer way ;)
+    u32* target = (u32*)0x22000000;
+    NTR_HEADER *ntrHeader = (NTR_HEADER*)target;
+    u32 target_buf_size = 16u * 1024u * 1024u; // 16MB
+    memset(target, 0, target_buf_size); // Clear our buffer
+
+    *(vu32*)0x10000020 = 0; // InitFS stuff
+    *(vu32*)0x10000020 = 0x340; // InitFS stuff
+
+    Debug("Reading NTR header...");
+    NTR_CmdReadHeader(ntrHeader);
+    Debug("Done reading NTR header.");
+    Debug("Game title: %.12s", ntrHeader->game_title);
 }
 
 int main()
