@@ -9,6 +9,8 @@
 #include "hid.h"
 #include "fatfs/ff.h"
 #include "gamecart/protocol.h"
+#include "gamecart/protocol_ctr.h"
+#include "gamecart/protocol_ntr.h"
 #include "gamecart/command_ctr.h"
 #include "gamecart/command_ntr.h"
 #include "headers.h"
@@ -16,9 +18,6 @@
 
 #include <string.h>
 #include <stdio.h>
-
-extern s32 CartID;
-extern s32 CartID2;
 
 static void poweroff()
 {
@@ -59,8 +58,8 @@ static int dump_ctr_cart_region(u32 start_sector, u32 end_sector, FIL* output_fi
 
         u8* read_ptr = ctx->buffer;
         while (read_ptr < ctx->buffer + ctx->buffer_size && current_sector < end_sector) {
-            Cart_Dummy();
-            Cart_Dummy();
+            CTR_Dummy();
+            CTR_Dummy();
             
 	    //If there is less data to read than the curren read_size, fix it
 	    if (end_sector - current_sector < read_size)
@@ -93,7 +92,7 @@ static int dump_ctr_cart_region(u32 start_sector, u32 end_sector, FIL* output_fi
 /**
  * Dump a CTR cartridge.
  */
-void dump_ctr()
+static void dump_ctr()
 {
     // Arbitrary target buffer
     // TODO: This should be done in a nicer way ;)
@@ -123,11 +122,11 @@ void dump_ctr()
     }
 
     u32 sec_keys[4];
-    Cart_Secure_Init(ncchHeaderData, sec_keys);
+    CTR_Secure_Init(ncchHeaderData, sec_keys);
 
     // Guess 0x200 first for the media size. this will be set correctly once the cart header is read 
     // Read out the header 0x0000-0x1000
-    Cart_Dummy();
+    CTR_Dummy();
     Debug("Reading NCSD header...");
     CTR_CmdReadData(0, 0x200, 0x1000 / 0x200, target);
     Debug("Done reading NCSD header.");
@@ -220,8 +219,9 @@ cleanup_none:
 
 /**
  * Dump an NTR cartridge.
+ * @param cart_id Cartridge ID.
  */
-void dump_ntr()
+static void dump_ntr(u32 cart_id)
 {
     // Arbitrary target buffer
     // TODO: This should be done in a nicer way ;)
@@ -233,10 +233,31 @@ void dump_ntr()
     *(vu32*)0x10000020 = 0; // InitFS stuff
     *(vu32*)0x10000020 = 0x340; // InitFS stuff
 
+    // First 8 KB of the NTR ROM:
+    // - 0x0000-0x0FFF: Header. (0x0200 for NTR, 0x1000 for TWL)
+    // - 0x1000-0x3FFF: Unreadable. (Fill with 0x00)
+    // - 0x4000-0x7FFF: Secure area.
+
     Debug("Reading NTR header...");
     NTR_CmdReadHeader(ntrHeader);
     Debug("Done reading NTR header.");
     Debug("Game title: %.12s", ntrHeader->game_title);
+
+    // FIXME: Compare cart_id's ROM size to ntrHeader->device_capacity.
+    // Also ntrHeader->total_used_rom_size.
+    const u8 cart_id_sz = (cart_id >> 8) & 0xFF;
+    u32 rom_size_mb;
+    if (cart_id_sz < 0xF0) {
+	    // FIXME: Only 0x00-0x7F?
+	    rom_size_mb = cart_id_sz + 1;
+    } else {
+	    rom_size_mb = (256 - cart_id_sz) * 256;
+    }
+    Debug("Device size: %u MB", rom_size_mb);
+
+    // Initialize cartridge security.
+    // TODO
+    
 }
 
 int main()
@@ -264,7 +285,7 @@ int main()
 	} else {
 		// DS(i) cartridge.
 		// FIXME: Proper TWL support.
-		dump_ntr();
+		dump_ntr(cart_id);
 	}
 
         Debug("Press B to exit, any other key to restart.");
