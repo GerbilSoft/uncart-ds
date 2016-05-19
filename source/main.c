@@ -165,7 +165,9 @@ static void dump_ctr()
         // Create output file
         char filename_buf[32];
         char extension_digit = cartSize <= file_max_blocks ? 's' : '0' + current_part;
-        snprintf(filename_buf, sizeof(filename_buf), "/%.16s.3d%c", ncchHeader->product_code, extension_digit);
+        // TODO: Add the ROM revision.
+        snprintf(filename_buf, sizeof(filename_buf), "/%.16s.3d%c",
+                 ncchHeader->product_code, extension_digit);
         Debug("Writing to file: \"%s\"", filename_buf);
         Debug("Change the SD card now and/or press a key.");
         Debug("(Or SELECT to cancel)");
@@ -241,7 +243,7 @@ static void dump_ntr(u32 chip_id)
     Debug("Reading NTR header...");
     NTR_CmdReadHeader(ntrHeader);
     Debug("Done reading NTR header.");
-    Debug("Game title: %.12s", ntrHeader->game_title);
+    Debug("Game title: %.12s (Rev.%02u)", ntrHeader->game_title, ntrHeader->rom_version);
 
     // Get the ROM size from the chip ID.
     const u8 chip_id_sz = (chip_id >> 8) & 0xFF;
