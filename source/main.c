@@ -1,3 +1,9 @@
+/**
+ * References:
+ * - http://problemkaputt.de/gbatek.htm#dscartridgesencryptionfirmware
+ * - http://problemkaputt.de/gbatek.htm#dscartridgeprotocol
+ */
+
 #include "draw.h"
 #include "hid.h"
 #include "fatfs/ff.h"
@@ -39,7 +45,8 @@ struct Context {
     u32 media_unit;
 };
 
-static int dump_cart_region(u32 start_sector, u32 end_sector, FIL* output_file, struct Context* ctx) {
+static int dump_ctr_cart_region(u32 start_sector, u32 end_sector, FIL* output_file, struct Context* ctx)
+{
     u32 read_size = 1u * 1024 * 1024 / ctx->media_unit; // 1MiB default
 
     // Dump remaining data
@@ -81,23 +88,18 @@ static int dump_cart_region(u32 start_sector, u32 end_sector, FIL* output_file, 
     return 0;
 }
 
-int main() {
-
-restart_program:
-    // Setup boring stuff - clear the screen, initialize SD output, etc...
-    ClearTop();
-    
-    Debug("Uncart: ROM dump tool v0.2");
-    Debug("Insert your game cart now.");
-    wait_key();
-
+/**
+ * Dump a CTR cartridge.
+ */
+void dump_ctr()
+{
     // Arbitrary target buffer
     // TODO: This should be done in a nicer way ;)
     u32* target = (u32*)0x22000000;
     NCSD_HEADER *ncsdHeader = (NCSD_HEADER*)target;
     u32 target_buf_size = 16u * 1024u * 1024u; // 16MB
     memset(target, 0, target_buf_size); // Clear our buffer
-    
+
     u32* ncchHeaderData = (u32*)0x23000000;
     NCCH_HEADER *ncchHeader = (NCCH_HEADER*)ncchHeaderData;
 
@@ -106,8 +108,6 @@ restart_program:
 
     // ROM DUMPING CODE STARTS HERE
 
-    Cart_Init();
-    Debug("Cart id is %08x", Cart_GetID());
     Debug("Reading NCCH header...");
     CTR_CmdReadHeader(ncchHeader);
     Debug("Done reading NCCH header.");
@@ -117,7 +117,7 @@ restart_program:
         Debug("NCCH magic not found in header!!!");
         Debug("Press A to continue anyway.");
         if (!(InputWait() & BUTTON_A))
-            goto restart_prompt;
+            return;
     }
 
     u32 sec_keys[4];
@@ -129,20 +129,21 @@ restart_program:
     Debug("Reading NCSD header...");
     CTR_CmdReadData(0, 0x200, 0x1000 / 0x200, target);
     Debug("Done reading NCSD header.");
-    
+
     if (strncmp((const char*)(ncsdHeader->magic), "NCSD", 4)) {
         Debug("NCSD magic not found in header!!!");
         Debug("Press A to continue anyway.");
         if (!(InputWait() & BUTTON_A))
-            goto restart_prompt;
+            return;
     }
 
     const u32 mediaUnit = 0x200 * (1u << ncsdHeader->partition_flags[MEDIA_UNIT_SIZE]); //Correctly set the media unit size
 
-    //Calculate the actual size by counting the adding the size of each partition, plus the initial offset
-    //size is in media units
+    // Calculate the actual size by counting the adding the size of each partition, plus the initial offset
+    // size is in media units
+    // FIXME: Option to dump entire card instead of just the used area?
     u32 cartSize = ncsdHeader->offsetsize_table[0].offset;
-    for(int i = 0; i < 8; i++){
+    for (int i = 0; i < 8; i++) {
         cartSize += ncsdHeader->offsetsize_table[i].size;
     }
 
@@ -189,7 +190,7 @@ restart_program:
         if (region_end > cartSize)
             region_end = cartSize;
 
-        if (dump_cart_region(region_start, region_end, &file, &context) < 0)
+        if (dump_ctr_cart_region(region_start, region_end, &file, &context) < 0)
             goto cleanup_file;
 
         if (current_part == 0) {
@@ -213,11 +214,49 @@ cleanup_mount:
 cleanup_none:
         ;
     }
+}
 
-restart_prompt:
-    Debug("Press B to exit, any other key to restart.");
-    if (!(InputWait() & BUTTON_B))
-        goto restart_program;
+/**
+ * Dump an NTR cartridge.
+ */
+void dump_ntr()
+{
+    // TODO
+}
+
+int main()
+{
+    while (true) {
+        // Setup boring stuff - clear the screen, initialize SD output, etc...
+        ClearTop();
+
+        Debug("Uncart: ROM dump tool v0.2");
+        Debug("Insert your game cart now.");
+        wait_key();
+
+        Cart_Init();
+	u32 cart_id = Cart_GetID();
+        Debug("Cart ID is %08X", cart_id);
+	if (cart_id == 0x00000000 || cart_id == 0xFFFFFFFF) {
+		Debug("Cartridge not found!");
+		Debug("Press B to exit, any other key to restart.");
+		if (!(InputWait() & BUTTON_B))
+			continue;
+		break;
+	} else if (cart_id & 0x80000000) {
+		// 3DS cartridge.
+		dump_ctr();
+	} else {
+		// DS(i) cartridge.
+		// FIXME: Proper TWL support.
+		dump_ntr();
+	}
+
+        Debug("Press B to exit, any other key to restart.");
+        if (!(InputWait() & BUTTON_B))
+            continue;
+	break;
+    }
 
     poweroff();
     return 0;
