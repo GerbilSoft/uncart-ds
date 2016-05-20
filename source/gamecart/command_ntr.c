@@ -38,12 +38,12 @@ void NTR_CmdEnter16ByteMode(void)
 
 /**
  * Read the header of an NTR/TWL cartridge.
- * @param buffer Header buffer. (Must be >= 0x200 bytes)
+ * @param buffer Header buffer. (Must be >= 0x1000 bytes)
  */
 void NTR_CmdReadHeader(void* buffer)
 {
     static const u32 readheader_cmd[2] = { 0x00000000, 0x00000000 };
-    NTR_SendCommand(readheader_cmd, 0x200, NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) | NTRCARD_DELAY2(0x18), buffer);
+    NTR_SendCommand(readheader_cmd, 0x1000, NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) | NTRCARD_DELAY2(0x18), buffer);
 }
 
 /** KEY1/KEY2 encryption code based on Wood Dumper. **/
