@@ -9,6 +9,7 @@
  * - https://www.3dbrew.org/wiki/Gamecards
  */
 
+#include <stdbool.h>
 #include "command_ntr.h"
 #include "protocol_ntr.h"
 
@@ -49,6 +50,8 @@ void NTR_CmdReadHeader(void* buffer)
 
 #define ALIGN(n) __attribute__ ((aligned (n)))
 #include "keys.h"
+#include "delay.h"
+#include "protocol.h"   // Cart_GetID()
 
 enum {
     EInitAreaSize = 0x8000,
@@ -139,6 +142,7 @@ static void applyKey(void)
     }
 }
 
+#include "draw.h"
 /**
  * Initialize the Key1 hash.
  * @param gameCode 32-bit game code.
@@ -147,6 +151,7 @@ static void applyKey(void)
 static void initKey(u32 gameCode, int aType)
 {
     // TODO: Use TWL_BF_Key1[] for DSi Secure Area.
+    memset(iCardHash, 0, sizeof(iCardHash));
     memcpy(iCardHash, NTR_BF_Key1, sizeof(NTR_BF_Key1));
     iKeyCode[0] = gameCode;
     iKeyCode[1] = gameCode/2;
@@ -216,6 +221,7 @@ void createEncryptedCommand(u8 cmd, u8 cmdData[8], u32 block)
     cmdData[6] = (u8)((jjj<<4)|(iKey1.kkkkk>>16));
     cmdData[5] = (u8)(iKey1.kkkkk>>8);
     cmdData[4] = (u8)iKey1.kkkkk;
+    Debug("NoEnc: %08X %08X", *(uint32_t*)&cmdData[0], *(uint32_t*)&cmdData[4]);
     cryptUp((u32*)cmdData);
     iKey1.kkkkk += 1;
 }
@@ -236,6 +242,62 @@ void decryptSecureArea(u32 gameCode, u32 *secureArea)
 }
 
 /**
+ * Get the secure chip ID.
+ * Only usable when reading the Secure Area.
+ * @param flagsKey1 [in] KEY1 flags.
+ * @param chip_id   [in] Original chip ID.
+ * @param ntrHeader [in]  NTR header. (TODO: Eliminate this?)
+ * @return True if the secure chip ID matches; false if not.
+ */
+static bool NTR_GetSecureChipID(u32 flagsKey1, u32 chip_id, const NTR_HEADER *ntrHeader)
+{
+    ALIGN(4) u8 cmdData[8];
+    createEncryptedCommand(NTRCARD_CMD_SECURE_CHIPID, cmdData, 0);
+    Debug("Enc:   %08X %08X", *(uint32_t*)&cmdData[0], *(uint32_t*)&cmdData[4]);
+
+    if (chip_id & 0x80000000) {
+        // Extra delay and command is required.
+        // secure_area_delay is in 131 kHz units. Convert to microseconds.
+        // TODO: Optimize this by not using floating-point arithmetic.
+        NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+        u32 us = ntrHeader->secure_area_delay * 7.63;
+        ioDelay(us);
+    }
+
+    // Request the secure chip ID.
+    // NOTE: We're writing the command directly here.
+    REG_NTRCARDMCNT = NTRCARD_CR1_ENABLE | NTRCARD_CR1_IRQ;
+    REG_NTRCARDCMD[0] = cmdData[3];
+    REG_NTRCARDCMD[1] = cmdData[2];
+    REG_NTRCARDCMD[2] = cmdData[1];
+    REG_NTRCARDCMD[3] = cmdData[0];
+    REG_NTRCARDCMD[4] = cmdData[7];
+    REG_NTRCARDCMD[5] = cmdData[6];
+    REG_NTRCARDCMD[6] = cmdData[5];
+    REG_NTRCARDCMD[7] = cmdData[4];
+    REG_NTRCARDROMCNT = flagsKey1 | NTRCARD_PAGESIZE_4;
+#if 0
+    u32 secure_chip_id = 0;
+    NTR_SendCommand(cmdData, 4, flagsKey1, &secure_chip_id);
+    Debug("Secure chip ID: %08X", secure_chip_id);
+#endif
+#if 0
+    ALIGN(4) u8 data[4096];
+    NTR_SendCommand(cmdData, 4096, flagsKey1, data);
+    Debug("Secure chip ID: %08X %08X", *(uint32_t*)&data[0x910], *(uint32_t*)&data[0x914]);
+#endif
+
+    u32 secure_chip_id = 0;
+    do {
+        if (REG_NTRCARDROMCNT & NTRCARD_DATA_READY) {
+            secure_chip_id = REG_NTRCARDFIFO;
+            Debug("Secure chip ID: %08X", secure_chip_id);
+        }
+    } while (REG_NTRCARDROMCNT & NTRCARD_BUSY);
+    Debug("Done with secure chip ID");
+}
+
+/**
  * Read the Secure Area. (0x4000-0x7FFF)
  * This switches into KEY2 encryption mode.
  * @param buffer	[out] Output buffer.
@@ -248,27 +310,74 @@ void NTR_ReadSecureArea(void *buffer, const NTR_HEADER *ntrHeader)
     memcpy(&gameCode, ntrHeader->gamecode, sizeof(gameCode));
     initKey(gameCode, false);
 
+    // Determine which sub-protocol to use.
+    // "Large" cartridges return the secure area in 0x200-byte chunks.
+    // "Small" cartridges return the secure area in 0x1000-byte chunks.
+    u32 chip_id = Cart_GetID();
+    bool isLargeCart = !!(chip_id & 0x80000000);
+        
     u32 flagsKey1 = NTRCARD_ACTIVATE | NTRCARD_nRESET |
                     (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_CLK_SLOW)) |
                     ((ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF))) +
                     ((ntrHeader->cardControlBF & NTRCARD_DELAY2(0x3F))>>16));
     u32 flagsSec = (ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) |NTRCARD_DELAY2(0x3F))) |
                     NTRCARD_ACTIVATE | NTRCARD_nRESET | NTRCARD_SEC_EN | NTRCARD_SEC_DAT;
-    // FIXME: "iCheapCard"?
-    //if(!iCheapCard) flagsKey1|=CARD_SEC_LARGE;
+    u32 flags = ntrHeader->cardControl13 & ~NTRCARD_BLK_SIZE(7);
+    if (!isLargeCart) {
+        // "Small" cart. Read the secure area in 0x1000-byte chunks.
+        flagsKey1 |= NTRCARD_SEC_LARGE;
+    }
 
     ALIGN(4) u8 cmdData[8];
-    static const u8 cardSeedBytes[] = {0xE8,0x4D,0x5A,0xB1,0x17,0x8F,0x99,0xD5};
-
-    u32 flags = ntrHeader->cardControl13 & ~NTRCARD_BLK_SIZE(7);
 
     // Activate KEY1 mode.
+    memset(cmdData, 0, sizeof(cmdData));
     initKey1(cmdData);
-    NTR_SendCommand(cmdData, 0, ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_CLK_SLOW | NTRCARD_ACTIVATE), NULL);
+    NTR_SendCommand(cmdData, 0, (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_nRESET | NTRCARD_CLK_SLOW)) | NTRCARD_ACTIVATE, NULL);
 
     // Activate KEY2 mode.
     createEncryptedCommand(NTRCARD_CMD_ACTIVATE_SEC, cmdData, 0);
     NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+    if (isLargeCart) {
+        // Extra delay and command is required.
+        // secure_area_delay is in 131 kHz units. Convert to microseconds.
+        // TODO: Optimize this by not using floating-point arithmetic.
+        u32 us = ntrHeader->secure_area_delay * 7.63;
+        ioDelay(us);
+        NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+    }
 
-    // TODO: Other stuff.
+    // Set the KEY1 seed for the Secure Area.
+    static const u8 cardSeedBytes[] = {0xE8, 0x4D, 0x5A, 0xB1, 0x17, 0x8F, 0x99, 0xD5};
+    REG_NTRCARDROMCNT = 0;
+    REG_NTRCARDSEEDX_L = cardSeedBytes[ntrHeader->enc_seed_select & 0x07] | (iKey1.nnn<<15) | (iKey1.mmm<<27) | 0x6000;
+    REG_NTRCARDSEEDY_L = 0x879B9B05;
+    REG_NTRCARDSEEDX_H = iKey1.mmm>>5;
+    REG_NTRCARDSEEDY_H = 0x5C;
+    REG_NTRCARDROMCNT = NTRCARD_nRESET | NTRCARD_SEC_SEED | NTRCARD_SEC_EN | NTRCARD_SEC_DAT;
+    flagsKey1 |= NTRCARD_SEC_EN | NTRCARD_SEC_DAT;
+
+    // Get the Secure chip ID.
+    // FIXME: Not working correctly???
+    bool isOk = NTR_GetSecureChipID(flagsKey1, chip_id, ntrHeader);
+
+    // Switch to regular data mode.
+    createEncryptedCommand(NTRCARD_CMD_DATA_MODE, cmdData, 0);
+    // TODO: isLargeCart
+    NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+
+    // Read four bytes at 0x8000.
+    // NOTE: Still not working...
+    u32 flagsRead = flags | NTRCARD_ACTIVATE | NTRCARD_nRESET;
+    u32 data = 0;
+    cmdData[3] = NTRCARD_CMD_DATA_READ;
+    cmdData[2] = 0x00;
+    cmdData[1] = 0x00;
+    cmdData[0] = 0x80;
+    cmdData[7] = 0x00;
+    cmdData[6] = 0x00;
+    cmdData[5] = 0x00;
+    cmdData[4] = 0x00;
+    NTR_SendCommand(cmdData, 4, flagsRead, &data);
+    Debug("read 0x8000: %08X", data);
 }
