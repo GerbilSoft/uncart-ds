@@ -62,3 +62,4 @@
 #define NTRKEY_PARAM 0x3F1FFFu
 
 void NTR_SendCommand(const u32 command[2], u32 pageSize, u32 latency, void* buffer);
+void NTR_SendCommand8(const u8 command[8], u32 pageSize, u32 latency, void* buffer);

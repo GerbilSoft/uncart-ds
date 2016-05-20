@@ -5,22 +5,8 @@
 #include "protocol_ntr.h"
 #include "draw.h"
 
-void NTR_SendCommand(const u32 command[2], u32 pageSize, u32 latency, void* buffer)
+static void NTR_SendCommand_Common(u32 pageSize, u32 latency, void* buffer)
 {
-#ifdef VERBOSE_COMMANDS
-    Debug("N> %08X %08X", command[0], command[1]);
-#endif
-
-    REG_NTRCARDMCNT = NTRCARD_CR1_ENABLE;
-
-    for( u32 i=0; i<2; ++i )
-    {
-        REG_NTRCARDCMD[i*4+0] = command[i]>>24;
-        REG_NTRCARDCMD[i*4+1] = command[i]>>16;
-        REG_NTRCARDCMD[i*4+2] = command[i]>>8;
-        REG_NTRCARDCMD[i*4+3] = command[i]>>0;
-    }
-
     pageSize -= pageSize & 3; // align to 4 byte
 
     u32 pageParam = NTRCARD_PAGESIZE_4K;
@@ -145,4 +131,46 @@ void NTR_SendCommand(const u32 command[2], u32 pageSize, u32 latency, void* buff
         }
     }
 #endif
+}
+
+void NTR_SendCommand(const u32 command[2], u32 pageSize, u32 latency, void* buffer)
+{
+#ifdef VERBOSE_COMMANDS
+    Debug("N> %08X %08X", command[0], command[1]);
+#endif
+
+    REG_NTRCARDMCNT = NTRCARD_CR1_ENABLE;
+
+    REG_NTRCARDCMD[0] = command[0]>>24;
+    REG_NTRCARDCMD[1] = command[0]>>16;
+    REG_NTRCARDCMD[2] = command[0]>>8;
+    REG_NTRCARDCMD[3] = command[0]>>0;
+    REG_NTRCARDCMD[4] = command[1]>>24;
+    REG_NTRCARDCMD[5] = command[1]>>16;
+    REG_NTRCARDCMD[6] = command[1]>>8;
+    REG_NTRCARDCMD[7] = command[1]>>0;
+
+    NTR_SendCommand_Common(pageSize, latency, buffer);
+}
+
+void NTR_SendCommand8(const u8 command[8], u32 pageSize, u32 latency, void* buffer)
+{
+#ifdef VERBOSE_COMMANDS
+    Debug("N> %02X%02X%02X%02X %02X%02X%02X%02X",
+          command[7], command[6], command[5], command[4],
+          command[3], command[2], command[1], command[0]);
+#endif
+
+    REG_NTRCARDMCNT = NTRCARD_CR1_ENABLE;
+
+    REG_NTRCARDCMD[0] = command[7];
+    REG_NTRCARDCMD[1] = command[6];
+    REG_NTRCARDCMD[2] = command[5];
+    REG_NTRCARDCMD[3] = command[4];
+    REG_NTRCARDCMD[4] = command[3];
+    REG_NTRCARDCMD[5] = command[2];
+    REG_NTRCARDCMD[6] = command[1];
+    REG_NTRCARDCMD[7] = command[0];
+
+    NTR_SendCommand_Common(pageSize, latency, buffer);
 }

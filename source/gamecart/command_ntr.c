@@ -179,14 +179,14 @@ static void initKey1(u8 cmdData[8])
     iKey1.mmm=getRandomNumber()&0x00000fff;
     iKey1.nnn=getRandomNumber()&0x00000fff;
 
-    cmdData[3] = NTRCARD_CMD_ACTIVATE_BF;
-    cmdData[2] = (u8)(iKey1.iii>>4);
-    cmdData[1] = (u8)((iKey1.iii<<4)|(iKey1.jjj>>8));
-    cmdData[0] = (u8)iKey1.jjj;
-    cmdData[7] = (u8)(iKey1.kkkkk>>16);
-    cmdData[6] = (u8)(iKey1.kkkkk>>8);
-    cmdData[5] = (u8)iKey1.kkkkk;
-    cmdData[4] = (u8)getRandomNumber();
+    cmdData[7] = NTRCARD_CMD_ACTIVATE_BF;
+    cmdData[6] = (u8)(iKey1.iii>>4);
+    cmdData[5] = (u8)((iKey1.iii<<4)|(iKey1.jjj>>8));
+    cmdData[4] = (u8)iKey1.jjj;
+    cmdData[3] = (u8)(iKey1.kkkkk>>16);
+    cmdData[2] = (u8)(iKey1.kkkkk>>8);
+    cmdData[1] = (u8)iKey1.kkkkk;
+    cmdData[0] = (u8)getRandomNumber();
 }
 
 /**
@@ -213,17 +213,23 @@ void createEncryptedCommand(u8 cmd, u8 cmdData[8], u32 block)
     }
 
     // Fill in the command data.
-    cmdData[3] = (u8)(cmd|(block>>12));
-    cmdData[2] = (u8)(block>>4);
-    cmdData[1] = (u8)((block<<4)|(iii>>8));
-    cmdData[0] = (u8)iii;
-    cmdData[7] = (u8)(jjj>>4);
-    cmdData[6] = (u8)((jjj<<4)|(iKey1.kkkkk>>16));
-    cmdData[5] = (u8)(iKey1.kkkkk>>8);
-    cmdData[4] = (u8)iKey1.kkkkk;
-    Debug("NoEnc: %08X %08X", *(uint32_t*)&cmdData[0], *(uint32_t*)&cmdData[4]);
+    cmdData[7] = (u8)(cmd|(block>>12));
+    cmdData[6] = (u8)(block>>4);
+    cmdData[5] = (u8)((block<<4)|(iii>>8));
+    cmdData[4] = (u8)iii;
+    cmdData[3] = (u8)(jjj>>4);
+    cmdData[2] = (u8)((jjj<<4)|(iKey1.kkkkk>>16));
+    cmdData[1] = (u8)(iKey1.kkkkk>>8);
+    cmdData[0] = (u8)iKey1.kkkkk;
+    Debug("NoEnc: %02X%02X%02X%02X %02X%02X%02X%02X",
+          cmdData[7], cmdData[6], cmdData[5], cmdData[4],
+          cmdData[3], cmdData[2], cmdData[1], cmdData[0]);
     cryptUp((u32*)cmdData);
     iKey1.kkkkk += 1;
+
+    Debug("Enc:   %02X%02X%02X%02X %02X%02X%02X%02X",
+          cmdData[7], cmdData[6], cmdData[5], cmdData[4],
+          cmdData[3], cmdData[2], cmdData[1], cmdData[0]);
 }
 
 /**
@@ -253,48 +259,20 @@ static bool NTR_GetSecureChipID(u32 flagsKey1, u32 chip_id, const NTR_HEADER *nt
 {
     ALIGN(4) u8 cmdData[8];
     createEncryptedCommand(NTRCARD_CMD_SECURE_CHIPID, cmdData, 0);
-    Debug("Enc:   %08X %08X", *(uint32_t*)&cmdData[0], *(uint32_t*)&cmdData[4]);
 
     if (chip_id & 0x80000000) {
         // Extra delay and command is required.
         // secure_area_delay is in 131 kHz units. Convert to microseconds.
         // TODO: Optimize this by not using floating-point arithmetic.
-        NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+        NTR_SendCommand8(cmdData, 0, flagsKey1, NULL);
         u32 us = ntrHeader->secure_area_delay * 7.63;
         ioDelay(us);
     }
 
     // Request the secure chip ID.
-    // NOTE: We're writing the command directly here.
-    REG_NTRCARDMCNT = NTRCARD_CR1_ENABLE | NTRCARD_CR1_IRQ;
-    REG_NTRCARDCMD[0] = cmdData[3];
-    REG_NTRCARDCMD[1] = cmdData[2];
-    REG_NTRCARDCMD[2] = cmdData[1];
-    REG_NTRCARDCMD[3] = cmdData[0];
-    REG_NTRCARDCMD[4] = cmdData[7];
-    REG_NTRCARDCMD[5] = cmdData[6];
-    REG_NTRCARDCMD[6] = cmdData[5];
-    REG_NTRCARDCMD[7] = cmdData[4];
-    REG_NTRCARDROMCNT = flagsKey1 | NTRCARD_PAGESIZE_4;
-#if 0
     u32 secure_chip_id = 0;
-    NTR_SendCommand(cmdData, 4, flagsKey1, &secure_chip_id);
+    NTR_SendCommand8(cmdData, 4, flagsKey1, &secure_chip_id);
     Debug("Secure chip ID: %08X", secure_chip_id);
-#endif
-#if 0
-    ALIGN(4) u8 data[4096];
-    NTR_SendCommand(cmdData, 4096, flagsKey1, data);
-    Debug("Secure chip ID: %08X %08X", *(uint32_t*)&data[0x910], *(uint32_t*)&data[0x914]);
-#endif
-
-    u32 secure_chip_id = 0;
-    do {
-        if (REG_NTRCARDROMCNT & NTRCARD_DATA_READY) {
-            secure_chip_id = REG_NTRCARDFIFO;
-            Debug("Secure chip ID: %08X", secure_chip_id);
-        }
-    } while (REG_NTRCARDROMCNT & NTRCARD_BUSY);
-    Debug("Done with secure chip ID");
 }
 
 /**
@@ -333,18 +311,18 @@ void NTR_ReadSecureArea(void *buffer, const NTR_HEADER *ntrHeader)
     // Activate KEY1 mode.
     memset(cmdData, 0, sizeof(cmdData));
     initKey1(cmdData);
-    NTR_SendCommand(cmdData, 0, (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_nRESET | NTRCARD_CLK_SLOW)) | NTRCARD_ACTIVATE, NULL);
+    NTR_SendCommand8(cmdData, 0, (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_nRESET | NTRCARD_CLK_SLOW)) | NTRCARD_ACTIVATE, NULL);
 
     // Activate KEY2 mode.
     createEncryptedCommand(NTRCARD_CMD_ACTIVATE_SEC, cmdData, 0);
-    NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+    NTR_SendCommand8(cmdData, 0, flagsKey1, NULL);
     if (isLargeCart) {
         // Extra delay and command is required.
         // secure_area_delay is in 131 kHz units. Convert to microseconds.
         // TODO: Optimize this by not using floating-point arithmetic.
         u32 us = ntrHeader->secure_area_delay * 7.63;
         ioDelay(us);
-        NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+        NTR_SendCommand8(cmdData, 0, flagsKey1, NULL);
     }
 
     // Set the KEY1 seed for the Secure Area.
@@ -364,20 +342,20 @@ void NTR_ReadSecureArea(void *buffer, const NTR_HEADER *ntrHeader)
     // Switch to regular data mode.
     createEncryptedCommand(NTRCARD_CMD_DATA_MODE, cmdData, 0);
     // TODO: isLargeCart
-    NTR_SendCommand(cmdData, 0, flagsKey1, NULL);
+    NTR_SendCommand8(cmdData, 0, flagsKey1, NULL);
 
     // Read four bytes at 0x8000.
     // NOTE: Still not working...
     u32 flagsRead = flags | NTRCARD_ACTIVATE | NTRCARD_nRESET;
     u32 data = 0;
-    cmdData[3] = NTRCARD_CMD_DATA_READ;
-    cmdData[2] = 0x00;
-    cmdData[1] = 0x00;
-    cmdData[0] = 0x80;
-    cmdData[7] = 0x00;
+    cmdData[7] = NTRCARD_CMD_DATA_READ;
     cmdData[6] = 0x00;
     cmdData[5] = 0x00;
-    cmdData[4] = 0x00;
-    NTR_SendCommand(cmdData, 4, flagsRead, &data);
+    cmdData[4] = 0x80;
+    cmdData[3] = 0x00;
+    cmdData[2] = 0x00;
+    cmdData[1] = 0x00;
+    cmdData[0] = 0x00;
+    NTR_SendCommand8(cmdData, 4, flagsRead, &data);
     Debug("read 0x8000: %08X", data);
 }
