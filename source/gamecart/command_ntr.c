@@ -48,9 +48,7 @@ void NTR_CmdReadHeader(void* buffer)
 /** KEY1/KEY2 encryption code based on Wood Dumper. **/
 
 #define ALIGN(n) __attribute__ ((aligned (n)))
-
-// Key1 data for NTR.
-#include "key1.h"
+#include "keys.h"
 
 enum {
     EInitAreaSize = 0x8000,
@@ -148,7 +146,8 @@ static void applyKey(void)
  */
 static void initKey(u32 gameCode, int aType)
 {
-    memcpy(iCardHash, gEncrData, sizeof(gEncrData));
+    // TODO: Use TWL_BF_Key1[] for DSi Secure Area.
+    memcpy(iCardHash, NTR_BF_Key1, sizeof(NTR_BF_Key1));
     iKeyCode[0] = gameCode;
     iKeyCode[1] = gameCode/2;
     iKeyCode[2] = gameCode*2;
@@ -252,7 +251,7 @@ void NTR_ReadSecureArea(void *buffer, const NTR_HEADER *ntrHeader)
     u32 flagsKey1 = NTRCARD_ACTIVATE | NTRCARD_nRESET |
                     (ntrHeader->cardControl13 & (NTRCARD_WR | NTRCARD_CLK_SLOW)) |
                     ((ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF))) +
-		        ((ntrHeader->cardControlBF & NTRCARD_DELAY2(0x3F))>>16));
+                    ((ntrHeader->cardControlBF & NTRCARD_DELAY2(0x3F))>>16));
     u32 flagsSec = (ntrHeader->cardControlBF & (NTRCARD_CLK_SLOW | NTRCARD_DELAY1(0x1FFF) |NTRCARD_DELAY2(0x3F))) |
                     NTRCARD_ACTIVATE | NTRCARD_nRESET | NTRCARD_SEC_EN | NTRCARD_SEC_DAT;
     // FIXME: "iCheapCard"?
