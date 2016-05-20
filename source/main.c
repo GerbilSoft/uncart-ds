@@ -291,7 +291,7 @@ int main()
 		if (!(InputWait() & BUTTON_B))
 			continue;
 		break;
-	} else if (chip_id & 0x80000000) {
+	} else if (chip_id & 0x10000000) {
 		// 3DS cartridge.
 		dump_ctr();
 	} else {
