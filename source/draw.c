@@ -16,18 +16,18 @@ void ClearScreen(unsigned char *screen, int color)
 {
     int i;
     unsigned char *screenPos = screen;
-    for (i = 0; i < (SCREEN_HEIGHT * SCREEN_WIDTH); i++) {
+    for (int i = (SCREEN_HEIGHT * SCREEN_WIDTH); i > 0; i--) {
         *(screenPos++) = color >> 16;  // B
         *(screenPos++) = color >> 8;   // G
         *(screenPos++) = color & 0xFF; // R
     }
 }
 
-void DrawCharacter(unsigned char *screen, int character, size_t x, size_t y, int color, int bgcolor)
+void DrawCharacter(unsigned char *screen, int character, u32 x, u32 y, int color, int bgcolor)
 {
-    for (size_t yy = 0; yy < 8; yy++) {
-        size_t xDisplacement = (x * BYTES_PER_PIXEL * SCREEN_WIDTH);
-        size_t yDisplacement = ((SCREEN_WIDTH - (y + yy) - 1) * BYTES_PER_PIXEL);
+    for (int yy = 0; yy < 8; yy++) {
+        u32 xDisplacement = (x * BYTES_PER_PIXEL * SCREEN_WIDTH);
+        u32 yDisplacement = ((SCREEN_WIDTH - (y + yy) - 1) * BYTES_PER_PIXEL);
         
 	unsigned char *screenPos = screen + xDisplacement + yDisplacement;
         unsigned char charPos = font[(size_t)character * 8 + yy];
@@ -46,21 +46,21 @@ void DrawCharacter(unsigned char *screen, int character, size_t x, size_t y, int
     }
 }
 
-void DrawString(unsigned char *screen, const char *str, size_t x, size_t y, int color, int bgcolor)
+void DrawString(unsigned char *screen, const char *str, u32 x, u32 y, int color, int bgcolor)
 {
-    const size_t string_len = strlen(str);
-
-    for (size_t i = 0; i < string_len; i++)
-        DrawCharacter(screen, str[i], x + i * 8, y, color, bgcolor);
+    for (; *str != 0; str++) {
+        DrawCharacter(screen, *str, x, y, color, bgcolor);
+        x += 8;
+    }
 }
 
-void DrawStringF(size_t x, size_t y, const char *format, ...)
+void DrawStringF(u32 x, u32 y, const char *format, ...)
 {
     char str[256];
     va_list va;
 
     va_start(va, format);
-    vsnprintf(str, 256, format, va);
+    vsnprintf(str, sizeof(str), format, va);
     va_end(va);
 
     DrawString(TOP_SCREEN0, str, x, y, RGB(0, 0, 0), RGB(255, 255, 255));
@@ -69,15 +69,16 @@ void DrawStringF(size_t x, size_t y, const char *format, ...)
 
 void Debug(const char *format, ...)
 {
-    char str[51];
-    const char* spaces = "                                                 X";
-    va_list va;
+    static const char spaces[] = "                                                 X";
 
+    char str[51];
+    va_list va;
     va_start(va, format);
     vsnprintf(str, sizeof(str), format, va);
     va_end(va);
     snprintf(str, sizeof(str), "%s%s", str, spaces);
 
+    // TODO: Disable double-buffering?
     DrawString(TOP_SCREEN0, str, 0u, current_y, RGB(255, 0, 0), RGB(255, 255, 255));
     DrawString(TOP_SCREEN0, spaces, 0u, current_y + 10, RGB(255, 0, 0), RGB(255, 255, 255));
     DrawString(TOP_SCREEN1, str, 0u, current_y, RGB(255, 0, 0), RGB(255, 255, 255));

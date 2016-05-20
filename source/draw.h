@@ -12,7 +12,7 @@
 
 #define SCREEN_SIZE (BYTES_PER_PIXEL * SCREEN_WIDTH * SCREEN_HEIGHT)
 
-#define RGB(r,g,b) (r<<24|b<<16|g<<8|r)
+#define RGB(r,g,b) ((b)<<16 | (g)<<8 | (r))
 
 #ifdef BRAHMA
     #define TOP_SCREEN0 (u8*)(0x20000000)
@@ -28,13 +28,11 @@
     #define BOT_SCREEN1 (u8*)(*(u32*)0x23FFFE08)
 #endif
 
-extern size_t current_y;
-
 void ClearScreen(unsigned char *screen, int color);
-void DrawCharacter(unsigned char *screen, int character, size_t x, size_t y, int color, int bgcolor);
-void DrawHex(unsigned char *screen, unsigned int hex, size_t x, size_t y, int color, int bgcolor);
-void DrawString(unsigned char *screen, const char *str, size_t x, size_t y, int color, int bgcolor);
-void DrawStringF(size_t x, size_t y, const char *format, ...);
-void DrawHexWithName(unsigned char *screen, const char *str, unsigned int hex, size_t x, size_t y, int color, int bgcolor);
 
+void DrawCharacter(unsigned char *screen, int character, u32 x, u32 y, int color, int bgcolor);
+void DrawString(unsigned char *screen, const char *str, u32 x, u32 y, int color, int bgcolor);
+void DrawStringF(u32 x, u32 y, const char *format, ...) __attribute__ ((format (printf, 3, 4)));
+
+extern size_t current_y;
 void Debug(const char *format, ...) __attribute__ ((format (printf, 1, 2)));
